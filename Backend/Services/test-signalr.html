@@ -1,0 +1,154 @@
+﻿<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitoring API - Logs en temps réel</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        h1 {
+            color: #333;
+            border-bottom: 2px solid #444;
+            padding-bottom: 10px;
+        }
+
+        #logs {
+            list-style-type: none;
+            padding: 0;
+        }
+
+            #logs li {
+                background-color: white;
+                margin: 5px 0;
+                padding: 10px 15px;
+                border-radius: 4px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                font-family: monospace;
+            }
+
+                #logs li.error {
+                    border-left: 4px solid #e74c3c;
+                }
+
+                #logs li.success {
+                    border-left: 4px solid #2ecc71;
+                }
+
+        #status {
+            padding: 10px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+        }
+
+        .connecting {
+            background-color: #f39c12;
+            color: white;
+        }
+
+        .connected {
+            background-color: #2ecc71;
+            color: white;
+        }
+
+        .disconnected {
+            background-color: #e74c3c;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>Monitoring API - Logs en temps réel</h1>
+    <div id="status" class="connecting">Connexion en cours...</div>
+    <ul id="logs"></ul>
+
+    <script>
+        // Configuration de la connexion SignalR
+        const connection = new signalR.HubConnectionBuilder()
+            .withUrl("/hubs/logs")
+            .withAutomaticReconnect({
+                nextRetryDelayInMilliseconds: retryContext => {
+                    return Math.min(retryContext.elapsedMilliseconds * 2, 10000);
+                }
+            })
+            .configureLogging(signalR.LogLevel.Information)
+            .build();
+
+        // Gestion des états de connexion
+        function updateConnectionStatus(status) {
+            const statusElement = document.getElementById("status");
+            statusElement.textContent = status;
+            statusElement.className = status.toLowerCase();
+        }
+
+        // Gestion des logs entrants
+        connection.on("ReceiveLog", log => {
+            const li = document.createElement("li");
+
+            // Formatage de la date
+            const logDate = new Date(log.timestampUtc);
+            const formattedDate = logDate.toLocaleString();
+
+            // Création du contenu du log
+            li.textContent = `[${formattedDate}] ${log.method} ${log.path} → ${log.statusCode} (${log.durationMs}ms)`;
+
+            // Ajout d'une classe CSS en fonction du statut
+            if (log.statusCode >= 400) {
+                li.classList.add("error");
+            } else {
+                li.classList.add("success");
+            }
+
+            document.getElementById("logs").prepend(li);
+
+            // Limite à 100 logs affichés
+            const logsList = document.getElementById("logs");
+            if (logsList.children.length > 100) {
+                logsList.removeChild(logsList.lastChild);
+            }
+        });
+
+        // Gestion des erreurs
+        connection.onclose(error => {
+            updateConnectionStatus("Déconnecté");
+            if (error) {
+                console.error("Déconnexion: ", error);
+            }
+        });
+
+        // Démarrage de la connexion
+        async function startConnection() {
+            try {
+                await connection.start();
+                updateConnectionStatus("Connecté");
+                console.log("SignalR Connected.");
+            } catch (err) {
+                updateConnectionStatus("Erreur de connexion");
+                console.error("Connection failed: ", err);
+                setTimeout(startConnection, 5000);
+            }
+        }
+
+        // Démarrer la connexion
+        startConnection();
+
+        // Reconnecter automatiquement
+        connection.onreconnecting(error => {
+            updateConnectionStatus("Reconnexion en cours...");
+            console.log("Connection lost. Reconnecting...", error);
+        });
+
+        connection.onreconnected(connectionId => {
+            updateConnectionStatus("Connecté");
+            console.log("Reconnected with ID: ", connectionId);
+        });
+    </script>
+</body>
+</html>
